@@ -1,20 +1,21 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <string.h>
 
 #define ACCURACY 20
 #define SINGLE_MAX 10000
 #define EXPONENT_MAX 1000
 
 /* Computes a^b mod c */
-int modpow(int a, int b, int c) {
-	int res = 1;
+int modpow(long a, long b, long c) {
+	long res = 1;
 	while(b > 0) {
-		if(b & 1) res = (res * a) % c;
+		if(b & 1) res = (res * a) % c; /* Need longs else this will overflow... */
 		b = b >> 1;
 		a = (a * a) % c;
 	}
-	return res;
+	return (int)res;
 }
 
 /* Computes the Jacobi symbol, (a, n) */
@@ -87,6 +88,7 @@ int gcd(int a, int b) {
 	return a;
 }
 
+/* Compute n^-1 mod m */
 int inverse(int n, int modulus) {
 	int a = n, b = modulus;
 	int x = 0, y = 1, x0 = 1, y0 = 0, q, temp;
@@ -102,13 +104,50 @@ int inverse(int n, int modulus) {
 	return x0;
 }
 
+/* Read the file fd into an array of bytes for encoding and transmission */
+int readFile(FILE* fd, char** buffer) {
+	int len = 0, cap = 1024, i, r, next;
+	char buf[1024];
+	*buffer = malloc(1024 * sizeof(char));
+	while((r = fread(buf, sizeof(char), 1024, fd)) > 0) {
+		if(len + r >= cap) {
+			cap *= 2;
+			*buffer = realloc(*buffer, cap);
+		}
+		memcpy(&(*buffer)[len], buf, r);
+		len += r;
+	}
+	*buffer = realloc(*buffer, cap * 2);
+	do {
+		(*buffer)[len] = '\0';
+		len++;
+	}
+	while(len % 4 != 0);
+	return len;
+}
+
+/* Encode message m using public exponent and modulus, c = m^e mod n */
+int encode(int m, int e, int n) {
+	printf("enc: %d %d %d %d\n", m, e, n, modpow(m, e, n));
+	return modpow(m, e, n);
+}
+
+/* Decode encrypted message c using private exponent and public modulus, m = c^d mod n */
+int decode(int c, int d, int n) {
+	printf("dec: %d %d %d %d\n", c, d, n, modpow(c, d, n));
+	return modpow(c, d, n);
+}
+
 int main(int argc, char** argv) {
-	int p, q, n, phi, e, d;
+	int p, q, n, phi, e, d, i, x;
+	int *encoded, *decoded;
 	srand(time(NULL));
 	p = randPrime(SINGLE_MAX);
+	p = 3359;
 	printf("Got first prime factor, p = %d ... ", p);
 	getchar();
 	q = randPrime(SINGLE_MAX);
+	q = 9907;
 	printf("Got second prime factor, q = %d ... ", q);
 	getchar();
 	n = p * q;
@@ -118,6 +157,7 @@ int main(int argc, char** argv) {
 	printf("Got totient, phi = %d ... ", phi);
 	getchar();
 	e = randExponent(phi, EXPONENT_MAX);
+	e = 853;
 	printf("Chose public exponent, e = %d\nPublic key is (%d, %d) ... ", e, e, n);
 	getchar();
 	d = inverse(e, phi);
@@ -130,6 +170,34 @@ int main(int argc, char** argv) {
 		printf("Failed to open file \"text.txt\". Does it exist?\n");
 		return EXIT_FAILURE;
 	}
-	int* buffer;
-	int len = readFile(f, buffer);
+	char* buffer;
+	int len = readFile(f, &buffer); /* len will be a multiple of 4, to send integer chunks */
+	
+	printf("File \"text.txt\" read successfully, %d bytes read. Encoding byte stream ... ", len);
+	getchar();
+	encoded = malloc((len/4) * sizeof(int));
+	for(i = 0; i < len; i += 4) {
+		encoded[i/4] = encode(buffer[i] + buffer[i + 1]*256 + buffer[i + 2]*65536 + buffer[i + 3]*16777216, e, n);
+		printf("%d ", encoded[i/4]);
+	}
+	printf("\nEncoding finished successfully ... ");
+	getchar();
+	
+	printf("Decoding encoded message ... ");
+	getchar();
+	decoded = malloc(len * sizeof(int));
+	for(i = 0; i < len/4; i++) {
+		int x = decode(encoded[i], d, n);
+		decoded[i*4] = x % 256;
+		decoded[i*4 + 1] = (x >> 8) % 256;
+		decoded[i*4 + 2] = (x >> 16) % 256;
+		decoded[i*4 + 3] = (x >> 24) % 256;
+	}
+	for(i = 0; i < len; i++) {
+		if(decoded[i] == '\0') break;
+		printf("%d: %c\n", decoded[i], (char)decoded[i]);
+	}
+	
+	free(encoded);
+	free(buffer);
 }
