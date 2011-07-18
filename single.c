@@ -123,4 +123,13 @@ int main(int argc, char** argv) {
 	d = inverse(e, phi);
 	printf("Calculated private exponent, d = %d\nPrivate key is (%d, %d) ... ", d, d, n);
 	getchar();
+	
+	printf("Opening file \"text.txt\" for reading\n");
+	FILE* f = fopen("text.txt", "r");
+	if(f == NULL) {
+		printf("Failed to open file \"text.txt\". Does it exist?\n");
+		return EXIT_FAILURE;
+	}
+	int* buffer;
+	int len = readFile(f, buffer);
 }
