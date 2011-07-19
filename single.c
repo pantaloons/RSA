@@ -6,6 +6,7 @@
 #define ACCURACY 20
 #define SINGLE_MAX 10000
 #define EXPONENT_MAX 1000
+#define BUF_SIZE 1024
 
 /* Computes a^b mod c */
 int modpow(long a, long b, int c) {
@@ -106,10 +107,10 @@ int inverse(int n, int modulus) {
 
 /* Read the file fd into an array of bytes for encoding and transmission */
 int readFile(FILE* fd, char** buffer, int bytes) {
-	int len = 0, cap = 1024, i, r, next;
-	char buf[1024];
-	*buffer = malloc(1024 * sizeof(char));
-	while((r = fread(buf, sizeof(char), 1024, fd)) > 0) {
+	int len = 0, cap = BUF_SIZE, i, r, next;
+	char buf[BUF_SIZE];
+	*buffer = malloc(BUF_SIZE * sizeof(char));
+	while((r = fread(buf, sizeof(char), BUF_SIZE, fd)) > 0) {
 		if(len + r >= cap) {
 			cap *= 2;
 			*buffer = realloc(*buffer, cap);
@@ -117,7 +118,8 @@ int readFile(FILE* fd, char** buffer, int bytes) {
 		memcpy(&(*buffer)[len], buf, r);
 		len += r;
 	}
-	*buffer = realloc(*buffer, cap * 2);
+	/* Pad the last block with zeros to signal end of cryptogram. An additional block is added if there is no room */
+	if(len + bytes - len % bytes > cap) *buffer = realloc(*buffer, len + bytes - len % bytes);
 	do {
 		(*buffer)[len] = '\0';
 		len++;
@@ -128,14 +130,22 @@ int readFile(FILE* fd, char** buffer, int bytes) {
 
 /* Encode message m using public exponent and modulus, c = m^e mod n */
 int encode(int m, int e, int n) {
-	printf("enc: %d %d %d %d\n", m, e, n, modpow(m, e, n));
 	return modpow(m, e, n);
 }
 
 /* Decode encrypted message c using private exponent and public modulus, m = c^d mod n */
 int decode(int c, int d, int n) {
-	printf("dec: %d %d %d %d\n", c, d, n, modpow(c, d, n));
 	return modpow(c, d, n);
+}
+
+/* Encode the message of given length, using the public key (exponent, modulus) */
+int* encodeMessage(int len, char* message, int exponent, int modulus) {
+	return NULL;
+}
+
+/* Decode the cryptogram of given length, using the private key (exponent, modulus) */
+char* decodeMessage(int len, int* cryptogram, int exponent, int modulus) {
+	return NULL;
 }
 
 int main(int argc, char** argv) {
@@ -144,11 +154,9 @@ int main(int argc, char** argv) {
 	srand(time(NULL));
 	while(1) {
 		p = randPrime(SINGLE_MAX);
-		p = 3359;
 		printf("Got first prime factor, p = %d ... ", p);
 		getchar();
 		q = randPrime(SINGLE_MAX);
-		q = 9907;
 		printf("Got second prime factor, q = %d ... ", q);
 		getchar();
 		n = p * q;
@@ -167,7 +175,6 @@ int main(int argc, char** argv) {
 	printf("Got totient, phi = %d ... ", phi);
 	getchar();
 	e = randExponent(phi, EXPONENT_MAX);
-	e = 853;
 	printf("Chose public exponent, e = %d\nPublic key is (%d, %d) ... ", e, e, n);
 	getchar();
 	d = inverse(e, phi);
@@ -181,14 +188,14 @@ int main(int argc, char** argv) {
 		return EXIT_FAILURE;
 	}
 	char* buffer;
-	int len = readFile(f, &buffer, bytes); /* len will be a multiple of 4, to send integer chunks */
+	int len = readFile(f, &buffer, bytes); /* len will be a multiple of bytes, to send whole chunks */
 	
 	printf("File \"text.txt\" read successfully, %d bytes read. Encoding byte stream in chunks of %d bytes ... ", len, bytes);
 	getchar();
 	encoded = malloc((len/bytes) * sizeof(int));
-	for(i = 0; i < len; i += 4) {
+	for(i = 0; i < len; i += bytes) {
 		x = 0;
-		for(j = 0; j < bytes; j++) x += buffer[i + j] * (2 << (8 * j + 8));
+		for(j = 0; j < bytes; j++) x += buffer[i + j] * (1 << (8 * j));
 		encoded[i/bytes] = encode(x, e, n);
 		printf("%d ", encoded[i/bytes]);
 	}
@@ -206,9 +213,13 @@ int main(int argc, char** argv) {
 	}
 	for(i = 0; i < len; i++) {
 		if(decoded[i] == '\0') break;
-		printf("%d: %c\n", decoded[i], (char)decoded[i]);
+		printf("%c", decoded[i], (char)decoded[i]);
 	}
+	printf("\nFinished RSA demonstration ... ");
+	getchar();
 	
 	free(encoded);
+	free(decoded);
 	free(buffer);
+	return EXIT_SUCCESS;
 }
