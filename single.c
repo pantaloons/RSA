@@ -8,14 +8,14 @@
 #define EXPONENT_MAX 1000
 
 /* Computes a^b mod c */
-int modpow(long a, long b, long c) {
-	long res = 1;
+int modpow(long a, long b, int c) {
+	int res = 1;
 	while(b > 0) {
-		if(b & 1) res = (res * a) % c; /* Need longs else this will overflow... */
+		if(b & 1) res = (res * a) % c; /* Need long multiplication else this will overflow... */
 		b = b >> 1;
-		a = (a * a) % c;
+		a = (a * a) % c; /* Same deal here */
 	}
-	return (int)res;
+	return res;
 }
 
 /* Computes the Jacobi symbol, (a, n) */
@@ -105,7 +105,7 @@ int inverse(int n, int modulus) {
 }
 
 /* Read the file fd into an array of bytes for encoding and transmission */
-int readFile(FILE* fd, char** buffer) {
+int readFile(FILE* fd, char** buffer, int bytes) {
 	int len = 0, cap = 1024, i, r, next;
 	char buf[1024];
 	*buffer = malloc(1024 * sizeof(char));
@@ -122,7 +122,7 @@ int readFile(FILE* fd, char** buffer) {
 		(*buffer)[len] = '\0';
 		len++;
 	}
-	while(len % 4 != 0);
+	while(len % bytes != 0);
 	return len;
 }
 
@@ -139,19 +139,29 @@ int decode(int c, int d, int n) {
 }
 
 int main(int argc, char** argv) {
-	int p, q, n, phi, e, d, i, x;
+	int p, q, n, phi, e, d, i, j, x, bytes;
 	int *encoded, *decoded;
 	srand(time(NULL));
-	p = randPrime(SINGLE_MAX);
-	p = 3359;
-	printf("Got first prime factor, p = %d ... ", p);
-	getchar();
-	q = randPrime(SINGLE_MAX);
-	q = 9907;
-	printf("Got second prime factor, q = %d ... ", q);
-	getchar();
-	n = p * q;
-	printf("Got modulus, n = pq = %d ... ", n);
+	while(1) {
+		p = randPrime(SINGLE_MAX);
+		p = 3359;
+		printf("Got first prime factor, p = %d ... ", p);
+		getchar();
+		q = randPrime(SINGLE_MAX);
+		q = 9907;
+		printf("Got second prime factor, q = %d ... ", q);
+		getchar();
+		n = p * q;
+		printf("Got modulus, n = pq = %d ... ", n);
+		if(n < 256) {
+			printf("Modulus is less than 256, cannot encode single bytes. Trying again ... ");
+			getchar();
+		}
+		else break;
+	}
+	if(n >> 24) bytes = 3;
+	else if(n >> 16) bytes = 2;
+	else bytes = 1;
 	getchar();
 	phi = (p - 1) * (q - 1);
 	printf("Got totient, phi = %d ... ", phi);
@@ -171,14 +181,16 @@ int main(int argc, char** argv) {
 		return EXIT_FAILURE;
 	}
 	char* buffer;
-	int len = readFile(f, &buffer); /* len will be a multiple of 4, to send integer chunks */
+	int len = readFile(f, &buffer, bytes); /* len will be a multiple of 4, to send integer chunks */
 	
-	printf("File \"text.txt\" read successfully, %d bytes read. Encoding byte stream ... ", len);
+	printf("File \"text.txt\" read successfully, %d bytes read. Encoding byte stream in chunks of %d bytes ... ", len, bytes);
 	getchar();
-	encoded = malloc((len/4) * sizeof(int));
+	encoded = malloc((len/bytes) * sizeof(int));
 	for(i = 0; i < len; i += 4) {
-		encoded[i/4] = encode(buffer[i] + buffer[i + 1]*256 + buffer[i + 2]*65536 + buffer[i + 3]*16777216, e, n);
-		printf("%d ", encoded[i/4]);
+		x = 0;
+		for(j = 0; j < bytes; j++) x += buffer[i + j] * (2 << (8 * j + 8));
+		encoded[i/bytes] = encode(x, e, n);
+		printf("%d ", encoded[i/bytes]);
 	}
 	printf("\nEncoding finished successfully ... ");
 	getchar();
@@ -186,12 +198,11 @@ int main(int argc, char** argv) {
 	printf("Decoding encoded message ... ");
 	getchar();
 	decoded = malloc(len * sizeof(int));
-	for(i = 0; i < len/4; i++) {
-		int x = decode(encoded[i], d, n);
-		decoded[i*4] = x % 256;
-		decoded[i*4 + 1] = (x >> 8) % 256;
-		decoded[i*4 + 2] = (x >> 16) % 256;
-		decoded[i*4 + 3] = (x >> 24) % 256;
+	for(i = 0; i < len/bytes; i++) {
+		x = decode(encoded[i], d, n);
+		for(j = 0; j < bytes; j++) {
+			decoded[i*bytes + j] = (x >> (8 * j)) % 256;
+		}
 	}
 	for(i = 0; i < len; i++) {
 		if(decoded[i] == '\0') break;
