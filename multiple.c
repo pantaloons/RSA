@@ -5,8 +5,8 @@
 #include <limits.h>
 
 #define ACCURACY 20
-#define FACTOR_DIGITS 5
-#define EXPONENT_MAX 1000
+#define FACTOR_DIGITS 20
+#define EXPONENT_MAX 10000
 #define BUF_SIZE 1024
 
 #define DATA_RADIX
@@ -251,20 +251,32 @@ void bignum_imultiply(bignum* source, bignum* mult) {
 void bignum_multiply(bignum* result, bignum* b1, bignum* b2) {
 	int i, j, length = 0;
 	word carry;
-	unsigned long prod; /* Long for intermediate product... this is not portable and should probably be changed */
+	unsigned long long int prod; /* Long for intermediate product... this is not portable and should probably be changed */
 	if(b1->length + b2->length > result->capacity) {
 		result->capacity = b1->length + b2->length;
 		result->data = realloc(result->data, result->capacity * sizeof(word));
 	}
 	for(i = 0; i < b1->length + b2->length; i++) result->data[i] = 0;
+	
 	for(i = 0; i < b1->length; i++) {
 		for(j = 0; j < b2->length; j++) {
-			prod = (b1->data[i] * (long)b2->data[j]) + result->data[i+j]; /* This should not overflow... */
-			carry = (int)(prod / RADIX);
+			prod = (b1->data[i] * (unsigned long long int)b2->data[j]) + (unsigned long long int)(result->data[i+j]); /* This should not overflow... */
+			carry = (unsigned int)(prod / RADIX);
 			if(carry > 0 && i + j + 2 > length) length = i + j + 2;
 			else if(i + j + 1 > length) length = i + j + 1;
-			result->data[i+j+1] += carry; /* Carry */
-			prod = (result->data[i+j] + b1->data[i] * (long)b2->data[j]) % RADIX; /* Again, should not overflow... */
+			
+			/* Add carry to the next word over, but this may cause further overflow.. propogate */
+			int k = 1;
+			do {
+				unsigned int temp = result->data[i+j+k] + carry;
+				if(temp < result->data[i+j+k]) carry = 1;
+				else carry = 0;
+				result->data[i+j+k] = temp; /* Already wrapped in unsigned arithmetic */
+				k++;
+			}
+			while(carry > 0);
+			
+			prod = (result->data[i+j] + b1->data[i] * (unsigned long long int)b2->data[j]) % RADIX; /* Again, should not overflow... */
 			result->data[i+j] = prod; /* Add */
 		}
 	}
@@ -286,17 +298,16 @@ void bignum_divide(bignum* quotient, bignum* remainder, bignum* b1, bignum* b2) 
 	bignum *temp = bignum_init(), *temp2 = bignum_init(), *temp3 = bignum_init();
 	bignum* quottemp = bignum_init();
 	word mult, carry = 0;
-	int factor = 1, n, m, i, j, length = 0;
-	unsigned long gquot, gtemp, grem;
+	int n, m, i, j, length = 0;
+	unsigned long long factor = 1;
+	unsigned long long gquot, gtemp, grem;
 	if(bignum_less(b1, b2)) {
 		quotient->length = 0;
 		bignum_copy(b1, remainder);
-		return;
 	}
 	else if(bignum_iszero(b1)) {
 		quotient->length = 0;
 		bignum_fromint(remainder, 0);
-		return;
 	}
 	else if(b2->length == 1) { /* We can do simple division */
 		if(quotient->capacity < b1->length) {
@@ -312,86 +323,84 @@ void bignum_divide(bignum* quotient, bignum* remainder, bignum* b1, bignum* b2) 
 		}
 		bignum_fromint(remainder, carry);
 		quotient->length = length;
-		return;
 	}
-	n = b1->length + 1;
-	m = b2->length;
-	if(quotient->capacity < n - m - 1) {
-		quotient->capacity = n - m - 1;
-		quotient->data = realloc(quotient->data, (n - m - 1) * sizeof(word));
-	}
-	bignum_copy(b1, b1copy);
-	bignum_copy(b2, b2copy);
-	/* Normalize.. multiply by 2 */
-	while(b2copy->data[b2copy->length - 1] < HALFRADIX) {
-		factor *= 2;
-		for(i = 0; i < b2copy->length; i++) {
-			mult = 2 * b2copy->data[i];
-			b2copy->data[i] = mult; /* Already wrapped due to unsigned overflow */
-			if(mult < b2copy->data[i]) { /* Wrapped around so there is a carry bit */
-				b2copy->data[i + 1] += 1; /* Note we do not need to realloc here because if the msb is < half radix, msb * 2 < radix */
+	else { /* Regular long division */
+		n = b1->length + 1;
+		m = b2->length;
+		if(quotient->capacity < n - m - 1) {
+			quotient->capacity = n - m - 1;
+			quotient->data = realloc(quotient->data, (n - m - 1) * sizeof(word));
+		}
+		bignum_copy(b1, b1copy);
+		bignum_copy(b2, b2copy);
+		/* Normalize.. multiply by 2 until MSB >= HALFRADIX */
+		while(b2copy->data[b2copy->length - 1] < HALFRADIX) {
+			factor *= 2;
+			bignum_imultiply(b2copy, &NUMS[2]);
+		}
+		if(factor > 1) {
+			bignum_fromint(temp, factor);
+			bignum_imultiply(b1copy, temp);
+		}
+		/* Ensure len + 1th word of b1 exists (zero if necessary) */
+		if(b1copy->length != n) {
+			b1copy->length++;
+			if(b1copy->length > b1copy->capacity) {
+				b1copy->capacity = b1copy->length;
+				b1copy->data = realloc(b1copy->data, b1copy->capacity * sizeof(word));
+				b1copy->data[n - 1] = 0;
 			}
 		}
-	}
-	if(factor > 1) {
-		bignum_fromint(temp, factor);
-		bignum_imultiply(b1copy, temp);
-	}
-	/* Ensure len + 1th word of b1 exists (zero if necessary) */
-	if(b1copy->length != n) {
-		b1copy->length++;
-		if(b1copy->length > b1copy->capacity) {
-			b1copy->capacity = b1copy->length;
-			b1copy->data = realloc(b1copy->data, b1copy->capacity * sizeof(word));
-			b1copy->data[n - 1] = 0;
+		
+		/* Process quotient by long division */
+		for(i = n - m - 1; i >= 0; i--) {
+			gtemp = RADIX * b1copy->data[i + m] + b1copy->data[i + m - 1];
+			gquot = gtemp / b2copy->data[m - 1];
+			if(gquot >= RADIX) gquot = UINT_MAX;
+			grem = gtemp % b2copy->data[m - 1];
+			while(grem < RADIX && gquot * b2copy->data[m - 2] > RADIX * grem + b1copy->data[i + m - 2]) { /* Should not overflow... ? */
+				gquot--;
+				grem += b2copy->data[m - 1];
+			}
+			quottemp->data[0] = gquot % RADIX;
+			quottemp->data[1] = (gquot / RADIX);
+			if(quottemp->data[1] != 0) quottemp->length = 2;
+			else quottemp->length = 1;
+			bignum_multiply(temp2, b2copy, quottemp);
+			if(temp3->length > temp3->capacity) {
+				temp3->capacity = temp3->length;
+				temp3->data = realloc(temp3->data, temp3->capacity * sizeof(word));
+			}
+			temp3->length = 0;
+			for(j = 0; j <= m; j++) {
+				temp3->data[j] = b1copy->data[i + j];
+				if(temp3->data[j] != 0) temp3->length = j + 1;
+			}
+			if(bignum_less(temp3, temp2)) {
+				bignum_iadd(temp3, b2copy);
+				gquot--;
+			}
+			bignum_isubtract(temp3, temp2);
+			for(j = 0; j < temp3->length; j++) b1copy->data[i + j] = temp3->data[j];
+			for(j = temp3->length; j <= m; j++) b1copy->data[i + j] = 0;
+			quotient->data[i] = gquot;
+			if(quotient->data[i] != 0) quotient->length = i;
 		}
-	}
-	
-	/* Process quotient by long division */
-	for(i = n - m - 1; i >= 0; i--) {
-		gtemp = RADIX * b1copy->data[i + m] + b1copy->data[i + m - 1];
-		gquot = gtemp / b2copy->data[m - 1];
-		if(gquot >= RADIX) gquot = UINT_MAX;
-		grem = gtemp % b2copy->data[m - 1];
-		while(grem < RADIX && gquot * b2copy->data[m - 2] > RADIX * grem + b1copy->data[i + m - 2]) { /* Should not overflow... ? */
-			gquot--;
-			grem += b2copy->data[m - 1];
+		
+		if(quotient->data[b1->length - b2->length] == 0) quotient->length = b1->length - b2->length;
+		else quotient->length = b1->length - b2->length + 1;
+		
+		/* Divide by factor now to find final remainder */
+		carry = 0;
+		for(i = b1copy->length - 1; i >= 0; i--) {
+			gtemp = carry * RADIX + b1copy->data[i];
+			b1copy->data[i] = gtemp/factor;
+			if(b1copy->data[i] != 0 && length == 0) length = i + 1;
+			carry = gtemp % factor;
 		}
-		quottemp->length = 1;
-		quottemp->data[0] = gquot % RADIX;
-		quottemp->data[1] = (gquot / RADIX);
-		bignum_multiply(temp2, b2copy, quottemp);
-		if(temp3->length > temp3->capacity) {
-			temp3->capacity = temp3->length;
-			temp3->data = malloc(temp3->capacity * sizeof(word));
-		}
-		for(j = 0; j <= m; j++) temp3->data[j] = b1copy->data[i + j];
-		if(temp3->data[m] == 0) temp3->length = m;
-		else temp3->length = m + 1;
-		if(bignum_less(temp3, temp2)) {
-			bignum_iadd(temp3, b2copy);
-			gquot--;
-		}
-		bignum_isubtract(temp3, temp2);
-		for(j = 0; j < temp3->length; j++) b1copy->data[i + j] = temp3->data[j];
-		for(j = temp3->length; j <= m; j++) b1copy->data[i + j] = 0;
-		quotient->data[i] = gquot;
-		if(quotient->data[i] != 0) quotient->length = i;
+		b1copy->length = length;
+		bignum_copy(b1copy, remainder);
 	}
-	
-	if(quotient->data[b1->length - b2->length] == 0) quotient->length = b1->length - b2->length;
-	else quotient->length = b1->length - b2->length + 1;
-	
-	/* Divide by factor now to find final remainder */
-	carry = 0;
-	for(i = b1copy->length - 1; i >= 0; i--) {
-		gtemp = carry * RADIX + b1copy->data[i];
-		b1copy->data[i] = gtemp/factor;
-		if(b1copy->data[i] != 0 && length == 0) length = i + 1;
-		carry = gtemp % factor;
-	}
-	b1copy->length = length;
-	bignum_copy(b1copy, remainder);
 	bignum_deinit(temp);
 	bignum_deinit(temp2);
 	bignum_deinit(temp3);
@@ -414,10 +423,16 @@ void bignum_modpow(bignum* b1, bignum* b2, bignum* b3, bignum* result) {
 			bignum_copy(remainder, result);
 		}
 		bignum_idivide(b, &NUMS[2], discard);
-		bignum_imultiply(a, a);
+		bignum_copy(a, discard);
+		bignum_imultiply(a, discard);
 		bignum_divide(discard, remainder, a, c);
 		bignum_copy(remainder, a);
 	}
+	bignum_deinit(a);
+	bignum_deinit(b);
+	bignum_deinit(c);
+	bignum_deinit(discard);
+	bignum_deinit(remainder);
 }
 
 void bignum_gcd(bignum* b1, bignum* b2, bignum* result) {
@@ -439,51 +454,42 @@ void bignum_gcd(bignum* b1, bignum* b2, bignum* result) {
 	bignum_deinit(discard);
 }
 
-void bignum_inverse(bignum* b1, bignum* b2, bignum* result) {
-	bignum *a = bignum_init(), *b = bignum_init();
-	bignum *quotient = bignum_init(), *remainder = bignum_init();
-	bignum *temp = bignum_init(), *temp2 = bignum_init();
-	bignum *x = bignum_init(), *y = bignum_init();
-	bignum *x0 = bignum_init(), *y0 = bignum_init();
+/* Compute a^-1 mod m, note we are finding the inverse in a finite field
+   so some trickery is done to avoid subtract or negative numbers... */
+void bignum_inverse(bignum* a, bignum* m, bignum* result) {
+	bignum *remprev = bignum_init(), *rem = bignum_init();
+	bignum *auxprev = bignum_init(), *aux = bignum_init();
+	bignum *rcur = bignum_init(), *qcur = bignum_init(), *acur = bignum_init();
+	bignum *discard = bignum_init();
 	
-	bignum_fromint(y, 1);
-	bignum_fromint(x0, 1);
-	bignum_copy(b1, a);
-	bignum_copy(b2, b);
-	while(bignum_greater(b, &NUMS[0])) {
-		bignum_divide(quotient, remainder, a, b);
-		bignum_copy(b, a);
-		bignum_copy(remainder, b);
+	bignum_copy(m, remprev);
+	bignum_copy(a, rem);
+	bignum_fromint(auxprev, 0);
+	bignum_fromint(aux, 1);
+	while(bignum_greater(rem, &NUMS[1])) {
+		bignum_divide(qcur, rcur, remprev, rem);
+		bignum_subtract(acur, m, qcur);
+		bignum_imultiply(acur, aux);
+		bignum_iadd(acur, auxprev);
+		bignum_divide(discard, remprev, acur, m);
+		bignum_copy(remprev, acur);
 		
-		bignum_copy(x, temp);
-		bignum_multiply(temp2, quotient, x);
-		bignum_copy(x0, x);
-		/* Note, this is necessary to prevent "negative" bignums, We increase by modulus
-		   before updating the inverses to get equivalent non-negative representative */
-		while(bignum_greater(temp2, x)) bignum_iadd(x, b2);
-		bignum_isubtract(x, temp2);
-		bignum_copy(temp, x0);
-		
-		bignum_copy(y, temp);
-		bignum_multiply(temp2, quotient, y);
-		bignum_copy(y0, y);
-		/* Same deal again */
-		while(bignum_greater(temp2, y)) bignum_iadd(y, b2);
-		bignum_isubtract(y, temp2);
-		bignum_copy(temp, y0);
+		bignum_copy(rem, remprev);
+		bignum_copy(aux, auxprev);
+		bignum_copy(rcur, rem);
+		bignum_copy(acur, aux);
 	}
-	bignum_copy(x0, result);
 	
-	bignum_deinit(a);
-	bignum_deinit(b);
-	bignum_deinit(quotient);
-	bignum_deinit(remainder);
-	bignum_deinit(temp);
-	bignum_deinit(temp2);
-	bignum_deinit(x);
-	bignum_deinit(y);
-	bignum_deinit(x0);
-	bignum_deinit(y0);
+	bignum_copy(acur, result);
+	
+	bignum_deinit(remprev);
+	bignum_deinit(rem);
+	bignum_deinit(auxprev);
+	bignum_deinit(aux);
+	bignum_deinit(rcur);
+	bignum_deinit(qcur);
+	bignum_deinit(acur);
+	bignum_deinit(discard);
 }
 
 int bignum_jacobi(bignum* ac, bignum* nc) {
@@ -516,9 +522,15 @@ int bignum_jacobi(bignum* ac, bignum* nc) {
 		bignum_copy(n, a);
 		bignum_copy(temp, n);
 	}
-	if(bignum_equal(a, &NUMS[0])) return 0;
-	else if(bignum_equal(a, &NUMS[1])) return mult;
-	else return 0;
+	int result = 0;
+	if(bignum_equal(a, &NUMS[1])) result = mult;
+	bignum_deinit(remainder);
+	bignum_deinit(twos);
+	bignum_deinit(discard);
+	bignum_deinit(temp);
+	bignum_deinit(a);
+	bignum_deinit(n);
+	return result;
 }
 
 /* Check whether a is a Euler witness for n */
@@ -534,7 +546,13 @@ int solovayPrime(int a, bignum* n) {
 	bignum_isubtract(pow, &NUMS[1]);
 	bignum_idivide(pow, &NUMS[2], remainder);
 	bignum_modpow(ab, pow, n, modpow);
-	return !bignum_equal(res, &NUMS[0]) && bignum_equal(modpow, res);
+	int result = !bignum_equal(res, &NUMS[0]) && bignum_equal(modpow, res);
+	bignum_deinit(ab);
+	bignum_deinit(res);
+	bignum_deinit(pow);
+	bignum_deinit(remainder);
+	bignum_deinit(modpow);
+	return result;
 }
 
 /* Test if n is probably prime, using accuracy of k (k solovay tests) */
@@ -546,7 +564,8 @@ int probablePrime(bignum* n, int k) {
 			if(!solovayPrime(rand() % (n->data[0] - 2) + 2, n)) return 0;
 		}
 		else {
-			if(!solovayPrime(rand() % (RAND_MAX - 2) + 2, n)) return 0;
+			int wit = rand() % (RAND_MAX - 2) + 2;
+			if(!solovayPrime(wit, n)) return 0;
 		}
 	}
 	return 1;
@@ -555,11 +574,11 @@ int probablePrime(bignum* n, int k) {
 void randPrime(int numDigits, bignum* result) {
 	char string[numDigits+1];
 	int i;
+	string[0] = (rand() % 9) + '1'; /* No leading zeros */
 	string[numDigits - 1] = (rand() % 5) * 2 + '1'; /* Last digit is odd */
 	for(i = 1; i < numDigits - 1; i++) string[i] = (rand() % 10) + '0';
-	string[0] = (rand() % 9) + '1'; /* No leading zeros */
 	string[numDigits] = '\0';
-	bignum_fromstring(result, string); //string);
+	bignum_fromstring(result, string);
 	while(1) {
 		if(probablePrime(result, ACCURACY)) return;
 		bignum_iadd(result, &NUMS[2]); /* result += 2 */
@@ -572,7 +591,10 @@ void randExponent(bignum* phi, int n, bignum* result) {
 	while(1) {
 		bignum_fromint(result, e);
 		bignum_gcd(result, phi, gcd);
-		if(bignum_equal(gcd, &NUMS[1])) return;
+		if(bignum_equal(gcd, &NUMS[1])) {
+			bignum_deinit(gcd);
+			return;
+		}
 		e = (e + 1) % n;
 		if(e <= 2) e = 3;
 	}
@@ -609,6 +631,21 @@ void encode(bignum* m, bignum* e, bignum* n, bignum* result) {
 /* Decode encrypted message c using private exponent and public modulus, m = c^d mod n */
 void decode(bignum* c, bignum* d, bignum* n, bignum* result) {
 	bignum_modpow(c, d, n, result);
+}
+
+int main2(void) {
+	bignum *b1 = bignum_init(), *b2 = bignum_init(), *b3 = bignum_init();
+	bignum *quotient = bignum_init(), *remainder = bignum_init();
+
+	bignum_fromstring(b1, "9990374915577974878");
+	bignum_fromstring(b2, "9990374915577974878");
+	
+	printf("\n\n\n\n\n\n");
+	
+	bignum_multiply(b3, b1, b2);
+	
+	bignum_print(b3);
+	printf("\n");
 }
 
 int main(int argc, char** argv) {
@@ -727,7 +764,7 @@ int main(int argc, char** argv) {
 	}
 	for(i = 0; i < len; i++) {
 		if(decoded[i] == '\0') break;
-		printf("%c", decoded[i], (char)decoded[i]);
+		printf("%c", (char)decoded[i]);
 	}
 	printf("\nFinished RSA demonstration ... ");
 	getchar();
