@@ -5,7 +5,7 @@
 #include <limits.h>
 
 #define ACCURACY 20
-#define FACTOR_DIGITS 50
+#define FACTOR_DIGITS 100
 #define EXPONENT_MAX RAND_MAX
 #define BUF_SIZE 1024
 
@@ -249,7 +249,7 @@ void bignum_imultiply(bignum* source, bignum* mult) {
 
 /* Multiply two bignums by the naive school method */
 void bignum_multiply(bignum* result, bignum* b1, bignum* b2) {
-	int i, j;
+	int i, j, k;
 	word carry;
 	unsigned long long int prod; /* Long for intermediate product... this is not portable and should probably be changed */
 	if(b1->length + b2->length > result->capacity) {
@@ -264,7 +264,7 @@ void bignum_multiply(bignum* result, bignum* b1, bignum* b2) {
 			carry = (unsigned int)(prod / RADIX);
 			
 			/* Add carry to the next word over, but this may cause further overflow.. propogate */
-			int k = 1;
+			k = 1;
 			while(carry > 0) {
 				unsigned int temp = result->data[i+j+k] + carry;
 				if(temp < result->data[i+j+k]) carry = 1;
@@ -277,7 +277,7 @@ void bignum_multiply(bignum* result, bignum* b1, bignum* b2) {
 			result->data[i+j] = prod; /* Add */
 		}
 	}
-	if(result->data[b1->length + b2->length - 1] == 0) result->length = b1->length + b2->length - 1;
+	if(b1->length + b2->length > 0 && result->data[b1->length + b2->length - 1] == 0) result->length = b1->length + b2->length - 1;
 	else result->length = b1->length + b2->length;
 }
 
@@ -295,7 +295,7 @@ void bignum_divide(bignum* quotient, bignum* remainder, bignum* b1, bignum* b2) 
 	bignum *b2copy = bignum_init(), *b1copy = bignum_init();
 	bignum *temp = bignum_init(), *temp2 = bignum_init(), *temp3 = bignum_init();
 	bignum* quottemp = bignum_init();
-	word mult, carry = 0;
+	word carry = 0;
 	int n, m, i, j, length = 0;
 	unsigned long long factor = 1;
 	unsigned long long gquot, gtemp, grem;
@@ -494,7 +494,7 @@ int bignum_jacobi(bignum* ac, bignum* nc) {
 	bignum *remainder = bignum_init(), *twos = bignum_init();
 	bignum *discard = bignum_init(), *temp = bignum_init();
 	bignum *a = bignum_init(), *n = bignum_init();
-	int mult = 1;
+	int mult = 1, result = 0;
 	bignum_copy(ac, a);
 	bignum_copy(nc, n);
 	while(bignum_greater(a, &NUMS[1]) && !bignum_equal(a, n)) {
@@ -520,8 +520,8 @@ int bignum_jacobi(bignum* ac, bignum* nc) {
 		bignum_copy(n, a);
 		bignum_copy(temp, n);
 	}
-	int result = 0;
 	if(bignum_equal(a, &NUMS[1])) result = mult;
+	else result = 0;
 	bignum_deinit(remainder);
 	bignum_deinit(twos);
 	bignum_deinit(discard);
@@ -535,7 +535,8 @@ int bignum_jacobi(bignum* ac, bignum* nc) {
 int solovayPrime(int a, bignum* n) {
 	bignum* ab = bignum_init(), *res = bignum_init(), *pow = bignum_init();
 	bignum* remainder = bignum_init(), *modpow = bignum_init();
-	int x;
+	int x, result;
+
 	bignum_fromint(ab, a);
 	x = bignum_jacobi(ab, n);
 	if(x == -1) bignum_subtract(res, n, &NUMS[1]);
@@ -544,7 +545,8 @@ int solovayPrime(int a, bignum* n) {
 	bignum_isubtract(pow, &NUMS[1]);
 	bignum_idivide(pow, &NUMS[2], remainder);
 	bignum_modpow(ab, pow, n, modpow);
-	int result = !bignum_equal(res, &NUMS[0]) && bignum_equal(modpow, res);
+	
+	result = !bignum_equal(res, &NUMS[0]) && bignum_equal(modpow, res);
 	bignum_deinit(ab);
 	bignum_deinit(res);
 	bignum_deinit(pow);
@@ -570,7 +572,7 @@ int probablePrime(bignum* n, int k) {
 }
 
 void randPrime(int numDigits, bignum* result) {
-	char string[numDigits+1];
+	char *string = malloc(numDigits+1 * sizeof(char));
 	int i;
 	string[0] = (rand() % 9) + '1'; /* No leading zeros */
 	string[numDigits - 1] = (rand() % 5) * 2 + '1'; /* Last digit is odd */
@@ -578,7 +580,10 @@ void randPrime(int numDigits, bignum* result) {
 	string[numDigits] = '\0';
 	bignum_fromstring(result, string);
 	while(1) {
-		if(probablePrime(result, ACCURACY)) return;
+		if(probablePrime(result, ACCURACY)) {
+			free(string);
+			return;
+		}
 		bignum_iadd(result, &NUMS[2]); /* result += 2 */
 	}
 }
@@ -631,22 +636,7 @@ void decode(bignum* c, bignum* d, bignum* n, bignum* result) {
 	bignum_modpow(c, d, n, result);
 }
 
-int main2(void) {
-	bignum *b1 = bignum_init(), *b2 = bignum_init(), *b3 = bignum_init();
-	bignum *quotient = bignum_init(), *remainder = bignum_init();
-
-	bignum_fromstring(b1, "9990374915577974878");
-	bignum_fromstring(b2, "9990374915577974878");
-	
-	printf("\n\n\n\n\n\n");
-	
-	bignum_multiply(b3, b1, b2);
-	
-	bignum_print(b3);
-	printf("\n");
-}
-
-int main(int argc, char** argv) {
+int main(void) {
 	int i, j, bytes, len;
 	bignum *p = bignum_init(), *q = bignum_init(), *n = bignum_init();
 	bignum *phi = bignum_init(), *e = bignum_init(), *d = bignum_init();
@@ -706,8 +696,8 @@ int main(int argc, char** argv) {
 	getchar();
 	
 	/* Compute maximum number of bytes that can be encoded in one encryption */
-	bytes = 0;
-	bignum_fromint(shift, 1 << 8); /* 8 bits per char */
+	bytes = -1;
+	bignum_fromint(shift, 1 << 7); /* 7 bits per char */
 	bignum_fromint(bbytes, 1);
 	while(bignum_less(bbytes, n)) {
 		bignum_imultiply(bbytes, shift); /* Shift by one byte, TODO: we use bitmask representative so this can actually be a shift... */
@@ -724,51 +714,64 @@ int main(int argc, char** argv) {
 	
 	printf("File \"text.txt\" read successfully, %d bytes read. Encoding byte stream in chunks of %d bytes ... ", len, bytes);
 	getchar();
+	printf("\n");
 	
+	/* Calloc works here because capacity = 0 forces a realloc by callees but we should really
+	 * bignum_init() all of these */
 	encoded = calloc(len/bytes, sizeof(bignum));
 	for(i = 0; i < len; i += bytes) {
 		bignum_fromint(x, 0);
-		bignum_fromint(temp2, 512);
+		bignum_fromint(temp2, 128);
 		bignum_fromint(temp1, 1);
-		/* Compute buffer[0] + buffer[1]*256 + buffer[2]*256^2 etc (base 256 representation for characters->int encoding)*/
+		/* Compute buffer[0] + buffer[1]*128 + buffer[2]*128^2 etc (base 128 representation for characters->int encoding)*/
 		for(j = 0; j < bytes; j++) {
-			bignum_fromint(temp3, buffer[i + j]); /* 1 << (8 * j) */
+			bignum_fromint(temp3, buffer[i + j]);
 			bignum_imultiply(temp3, temp1);
-			bignum_iadd(x, temp3); /*x += buffer[i + j] * (1 << (8 * j)) */
+			bignum_iadd(x, temp3); /*x += buffer[i + j] * (1 << (7 * j)) */
 			bignum_imultiply(temp1, temp2);
 		}
 		encode(x, e, n, &encoded[i/bytes]);
 		bignum_print(&encoded[i/bytes]);
 		printf(" ");
 	}
-	printf("\nEncoding finished successfully ... ");
+	printf("\n\nEncoding finished successfully ... ");
 	getchar();
 	
 	printf("Decoding encoded message ... ");
 	getchar();
+	printf("\n");
 	decoded = malloc(len * sizeof(int));
 	for(i = 0; i < len/bytes; i++) {
 		decode(&encoded[i], d, n, x);
-		bignum_fromint(temp1, 1);
-		bignum_fromint(temp2, 256);
-		bignum_fromint(temp3, 512);
-		for(j = 0; j < bytes; j++) {
-			bignum_idivide(x, temp1, shift); /* x >> (8 * j) */
-			bignum_divide(bbytes, shift, temp1, temp2); /* shift = x mod 256 */
+		bignum_fromint(temp2, 128);
+		for(j = 0; j < bytes; j++) {			
+			bignum_divide(bbytes, shift, x, temp2); /* shift = x mod 128 */
 			if(shift->length == 0) decoded[i*bytes + j] = (char)0;
 			else decoded[i*bytes + j] = (char)(shift->data[0]);
-			bignum_imultiply(temp1, temp3);
+			printf("%c", decoded[i*bytes + j]);
+			bignum_idivide(x, temp2, shift); /* x = x / 128 */
 		}
 	}
-	for(i = 0; i < len; i++) {
-		if(decoded[i] == '\0') break;
-		printf("%c", (char)decoded[i]);
-	}
-	printf("\nFinished RSA demonstration ... ");
+	printf("\n\nFinished RSA demonstration ... ");
 	getchar();
 	
+	for(i = 0; i < len/bytes; i++) free(encoded[i].data);
 	free(encoded);
 	free(decoded);
 	free(buffer);
+	bignum_deinit(p);
+	bignum_deinit(q);
+	bignum_deinit(n);
+	bignum_deinit(phi);
+	bignum_deinit(e);
+	bignum_deinit(d);
+	bignum_deinit(x);
+	bignum_deinit(bbytes);
+	bignum_deinit(shift);
+	bignum_deinit(temp1);
+	bignum_deinit(temp2);
+	bignum_deinit(temp3);
+	fclose(f);
+	
 	return EXIT_SUCCESS;
 }
