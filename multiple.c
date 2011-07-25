@@ -5,8 +5,8 @@
 #include <limits.h>
 
 #define ACCURACY 20
-#define FACTOR_DIGITS 20
-#define EXPONENT_MAX 10000
+#define FACTOR_DIGITS 50
+#define EXPONENT_MAX RAND_MAX
 #define BUF_SIZE 1024
 
 #define DATA_RADIX
@@ -173,7 +173,7 @@ void bignum_add(bignum* result, bignum* b1, bignum* b2) {
 	int i, n = MAX(b1->length, b2->length);
 	if(n + 1 > result->capacity) {
 		result->capacity = n + 1;
-		result->data = malloc(result->capacity * sizeof(word));
+		result->data = realloc(result->data, result->capacity * sizeof(word));
 	}
 	for(i = 0; i < n; i++) {
 		sum = carry;
@@ -204,7 +204,7 @@ void bignum_add(bignum* result, bignum* b1, bignum* b2) {
 	}
 	if(carry == 1) {
 		result->length = n + 1;
-		result->data[n + 1] = 1;
+		result->data[n] = 1;
 	}
 	else {
 		result->length = n;
@@ -225,7 +225,7 @@ void bignum_subtract(bignum* result, bignum* b1, bignum* b2) {
 	word carry = 0, diff, temp;
 	if(b1->length > result->capacity) {
 		result->capacity = b1->length;
-		result->data = malloc(result->capacity * sizeof(word));
+		result->data = realloc(result->data, result->capacity * sizeof(word));
 	}
 	for(i = 0; i < b1->length; i++) {
 		temp = carry;
@@ -249,7 +249,7 @@ void bignum_imultiply(bignum* source, bignum* mult) {
 
 /* Multiply two bignums by the naive school method */
 void bignum_multiply(bignum* result, bignum* b1, bignum* b2) {
-	int i, j, length = 0;
+	int i, j;
 	word carry;
 	unsigned long long int prod; /* Long for intermediate product... this is not portable and should probably be changed */
 	if(b1->length + b2->length > result->capacity) {
@@ -262,25 +262,23 @@ void bignum_multiply(bignum* result, bignum* b1, bignum* b2) {
 		for(j = 0; j < b2->length; j++) {
 			prod = (b1->data[i] * (unsigned long long int)b2->data[j]) + (unsigned long long int)(result->data[i+j]); /* This should not overflow... */
 			carry = (unsigned int)(prod / RADIX);
-			if(carry > 0 && i + j + 2 > length) length = i + j + 2;
-			else if(i + j + 1 > length) length = i + j + 1;
 			
 			/* Add carry to the next word over, but this may cause further overflow.. propogate */
 			int k = 1;
-			do {
+			while(carry > 0) {
 				unsigned int temp = result->data[i+j+k] + carry;
 				if(temp < result->data[i+j+k]) carry = 1;
 				else carry = 0;
 				result->data[i+j+k] = temp; /* Already wrapped in unsigned arithmetic */
 				k++;
 			}
-			while(carry > 0);
 			
 			prod = (result->data[i+j] + b1->data[i] * (unsigned long long int)b2->data[j]) % RADIX; /* Again, should not overflow... */
 			result->data[i+j] = prod; /* Add */
 		}
 	}
-	result->length = length;
+	if(result->data[b1->length + b2->length - 1] == 0) result->length = b1->length + b2->length - 1;
+	else result->length = b1->length + b2->length;
 }
 
 void bignum_idivide(bignum* source, bignum* div, bignum* remainder) {
@@ -327,9 +325,9 @@ void bignum_divide(bignum* quotient, bignum* remainder, bignum* b1, bignum* b2) 
 	else { /* Regular long division */
 		n = b1->length + 1;
 		m = b2->length;
-		if(quotient->capacity < n - m - 1) {
-			quotient->capacity = n - m - 1;
-			quotient->data = realloc(quotient->data, (n - m - 1) * sizeof(word));
+		if(quotient->capacity < n - m) {
+			quotient->capacity = n - m;
+			quotient->data = realloc(quotient->data, (n - m) * sizeof(word));
 		}
 		bignum_copy(b1, b1copy);
 		bignum_copy(b2, b2copy);
@@ -348,8 +346,8 @@ void bignum_divide(bignum* quotient, bignum* remainder, bignum* b1, bignum* b2) 
 			if(b1copy->length > b1copy->capacity) {
 				b1copy->capacity = b1copy->length;
 				b1copy->data = realloc(b1copy->data, b1copy->capacity * sizeof(word));
-				b1copy->data[n - 1] = 0;
 			}
+			b1copy->data[n - 1] = 0;
 		}
 		
 		/* Process quotient by long division */
@@ -367,8 +365,8 @@ void bignum_divide(bignum* quotient, bignum* remainder, bignum* b1, bignum* b2) 
 			if(quottemp->data[1] != 0) quottemp->length = 2;
 			else quottemp->length = 1;
 			bignum_multiply(temp2, b2copy, quottemp);
-			if(temp3->length > temp3->capacity) {
-				temp3->capacity = temp3->length;
+			if(m + 1 > temp3->capacity) {
+				temp3->capacity = m + 1;
 				temp3->data = realloc(temp3->data, temp3->capacity * sizeof(word));
 			}
 			temp3->length = 0;
@@ -727,7 +725,7 @@ int main(int argc, char** argv) {
 	printf("File \"text.txt\" read successfully, %d bytes read. Encoding byte stream in chunks of %d bytes ... ", len, bytes);
 	getchar();
 	
-	encoded = malloc((len/bytes) * sizeof(bignum));
+	encoded = calloc(len/bytes, sizeof(bignum));
 	for(i = 0; i < len; i += bytes) {
 		bignum_fromint(x, 0);
 		bignum_fromint(temp2, 512);
