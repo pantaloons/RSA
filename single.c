@@ -3,12 +3,14 @@
 #include <time.h>
 #include <string.h>
 
-#define ACCURACY 20
+#define ACCURACY 5
 #define SINGLE_MAX 10000
 #define EXPONENT_MAX 1000
 #define BUF_SIZE 1024
 
-/* Computes a^b mod c */
+/**
+ * Computes a^b mod c
+ */
 int modpow(long a, long b, int c) {
 	int res = 1;
 	while(b > 0) {
@@ -19,7 +21,9 @@ int modpow(long a, long b, int c) {
 	return res;
 }
 
-/* Computes the Jacobi symbol, (a, n) */
+/**
+ * Computes the Jacobi symbol, (a, n)
+ */
 int jacobi(int a, int n) {
 	int twos, temp;
 	int mult = 1;
@@ -40,14 +44,18 @@ int jacobi(int a, int n) {
 	else return 0; /* a == n => gcd(a, n) != 1 */
 }
 
-/* Check whether a is a Euler witness for n */
+/**
+ * Check whether a is a Euler witness for n
+ */
 int solovayPrime(int a, int n) {
 	int x = jacobi(a, n);
 	if(x == -1) x = n - 1;
 	return x != 0 && modpow(a, (n - 1)/2, n) == x;
 }
 
-/* Test if n is probably prime, using accuracy of k (k solovay tests) */
+/**
+ * Test if n is probably prime, using accuracy of k (k solovay tests)
+ */
 int probablePrime(int n, int k) {
 	if(n == 2) return 1;
 	else if(n % 2 == 0 || n == 1) return 0;
@@ -57,7 +65,9 @@ int probablePrime(int n, int k) {
 	return 1;
 }
 
-/* Find a random (probable) prime between 3 and n - 1, this distribution is nowhere near uniform, see prime gaps */
+/**
+ * Find a random (probable) prime between 3 and n - 1, this distribution is nowhere near uniform, see prime gaps
+ */
 int randPrime(int n) {
 	int prime = rand() % n;
 	n += n % 2; /* n needs to be even so modulo wrapping preserves oddness */
@@ -68,17 +78,9 @@ int randPrime(int n) {
 	}
 }
 
-/* Find a random exponent x between 3 and n - 1 such that gcd(x, phi) = 1, this distribution is similarly nowhere near uniform */
-int randExponent(int phi, int n) {
-	int e = rand() % n;
-	while(1) {
-		if(gcd(e, phi) == 1) return e;
-		e = (e + 1) % n;
-		if(e <= 2) e = 3;
-	}
-}
-
-/* Compute gcd(a, b) */
+/**
+ * Compute gcd(a, b)
+ */
 int gcd(int a, int b) {
 	int temp;
 	while(b != 0) {
@@ -89,7 +91,22 @@ int gcd(int a, int b) {
 	return a;
 }
 
-/* Compute n^-1 mod m */
+/**
+ * Find a random exponent x between 3 and n - 1 such that gcd(x, phi) = 1,
+ * this distribution is similarly nowhere near uniform
+ */
+int randExponent(int phi, int n) {
+	int e = rand() % n;
+	while(1) {
+		if(gcd(e, phi) == 1) return e;
+		e = (e + 1) % n;
+		if(e <= 2) e = 3;
+	}
+}
+
+/**
+ * Compute n^-1 mod m by extended euclidian method
+ */
 int inverse(int n, int modulus) {
 	int a = n, b = modulus;
 	int x = 0, y = 1, x0 = 1, y0 = 0, q, temp;
@@ -105,9 +122,13 @@ int inverse(int n, int modulus) {
 	return x0;
 }
 
-/* Read the file fd into an array of bytes for encoding and transmission */
+/**
+ * Read the file fd into an array of bytes ready for encryption.
+ * The array will be padded with zeros until it divides the number of
+ * bytes encrypted per block. Returns the number of bytes read.
+ */
 int readFile(FILE* fd, char** buffer, int bytes) {
-	int len = 0, cap = BUF_SIZE, i, r, next;
+	int len = 0, cap = BUF_SIZE, r;
 	char buf[BUF_SIZE];
 	*buffer = malloc(BUF_SIZE * sizeof(char));
 	while((r = fread(buf, sizeof(char), BUF_SIZE, fd)) > 0) {
@@ -128,37 +149,73 @@ int readFile(FILE* fd, char** buffer, int bytes) {
 	return len;
 }
 
-/* Encode message m using public exponent and modulus, c = m^e mod n */
+/**
+ * Encode the message m using public exponent and modulus, c = m^e mod n
+ */
 int encode(int m, int e, int n) {
 	return modpow(m, e, n);
 }
 
-/* Decode encrypted message c using private exponent and public modulus, m = c^d mod n */
+/**
+ * Decode cryptogram c using private exponent and public modulus, m = c^d mod n
+ */
 int decode(int c, int d, int n) {
 	return modpow(c, d, n);
 }
 
-/* Encode the message of given length, using the public key (exponent, modulus) */
-int* encodeMessage(int len, char* message, int exponent, int modulus) {
-	return NULL;
+/**
+ * Encode the message of given length, using the public key (exponent, modulus)
+ * The resulting array will be of size len/bytes, each index being the encryption
+ * of "bytes" consecutive characters, given by m = (m1 + m2*128 + m3*128^2 + ..),
+ * encoded = m^exponent mod modulus
+ */
+int* encodeMessage(int len, int bytes, char* message, int exponent, int modulus) {
+	int *encoded = malloc((len/bytes) * sizeof(int));
+	int x, i, j;
+	for(i = 0; i < len; i += bytes) {
+		x = 0;
+		for(j = 0; j < bytes; j++) x += message[i + j] * (1 << (7 * j));
+		encoded[i/bytes] = encode(x, exponent, modulus);
+#ifndef NOPRINT
+		printf("%d ", encoded[i/bytes]);
+#endif
+	}
+	return encoded;
 }
 
-/* Decode the cryptogram of given length, using the private key (exponent, modulus) */
-char* decodeMessage(int len, int* cryptogram, int exponent, int modulus) {
-	return NULL;
+/**
+ * Decode the cryptogram of given length, using the private key (exponent, modulus)
+ * Each encrypted packet should represent "bytes" characters as per encodeMessage.
+ * The returned message will be of size len * bytes.
+ */
+int* decodeMessage(int len, int bytes, int* cryptogram, int exponent, int modulus) {
+	int *decoded = malloc(len * sizeof(int));
+	int x, i, j;
+	for(i = 0; i < len; i++) {
+		x = decode(cryptogram[i], exponent, modulus);
+		for(j = 0; j < bytes; j++) {
+			decoded[i*bytes + j] = (x >> (7 * j)) % 128;
+#ifndef NOPRINT
+			if(decoded[i*bytes + j] != '\0') printf("%c", decoded[i*bytes + j]);
+#endif
+		}
+	}
+	return decoded;
 }
 
-int main(int argc, char** argv) {
-	int p, q, n, phi, e, d, i, j, x, bytes;
+int main(void) {
+	int p, q, n, phi, e, d, bytes;
 	int *encoded, *decoded;
 	srand(time(NULL));
 	while(1) {
 		p = randPrime(SINGLE_MAX);
 		printf("Got first prime factor, p = %d ... ", p);
 		getchar();
+		
 		q = randPrime(SINGLE_MAX);
 		printf("Got second prime factor, q = %d ... ", q);
 		getchar();
+		
 		n = p * q;
 		printf("Got modulus, n = pq = %d ... ", n);
 		if(n < 256) {
@@ -169,14 +226,17 @@ int main(int argc, char** argv) {
 	}
 	if(n >> 24) bytes = 3;
 	else if(n >> 16) bytes = 2;
-	else bytes = 1;
+	else bytes = 1;	
 	getchar();
+	
 	phi = (p - 1) * (q - 1);
 	printf("Got totient, phi = %d ... ", phi);
 	getchar();
+	
 	e = randExponent(phi, EXPONENT_MAX);
 	printf("Chose public exponent, e = %d\nPublic key is (%d, %d) ... ", e, e, n);
 	getchar();
+	
 	d = inverse(e, phi);
 	printf("Calculated private exponent, d = %d\nPrivate key is (%d, %d) ... ", d, d, n);
 	getchar();
@@ -189,32 +249,20 @@ int main(int argc, char** argv) {
 	}
 	char* buffer;
 	int len = readFile(f, &buffer, bytes); /* len will be a multiple of bytes, to send whole chunks */
+	fclose(f);
 	
 	printf("File \"text.txt\" read successfully, %d bytes read. Encoding byte stream in chunks of %d bytes ... ", len, bytes);
 	getchar();
-	encoded = malloc((len/bytes) * sizeof(int));
-	for(i = 0; i < len; i += bytes) {
-		x = 0;
-		for(j = 0; j < bytes; j++) x += buffer[i + j] * (1 << (8 * j));
-		encoded[i/bytes] = encode(x, e, n);
-		printf("%d ", encoded[i/bytes]);
-	}
+	encoded = encodeMessage(len, bytes, buffer, e, n);
 	printf("\nEncoding finished successfully ... ");
 	getchar();
 	
+	
 	printf("Decoding encoded message ... ");
 	getchar();
-	decoded = malloc(len * sizeof(int));
-	for(i = 0; i < len/bytes; i++) {
-		x = decode(encoded[i], d, n);
-		for(j = 0; j < bytes; j++) {
-			decoded[i*bytes + j] = (x >> (8 * j)) % 256;
-		}
-	}
-	for(i = 0; i < len; i++) {
-		if(decoded[i] == '\0') break;
-		printf("%c", decoded[i], (char)decoded[i]);
-	}
+	decoded = decodeMessage(len/bytes, bytes, encoded, d, n);
+	
+
 	printf("\nFinished RSA demonstration ... ");
 	getchar();
 	
