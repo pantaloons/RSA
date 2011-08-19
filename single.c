@@ -11,10 +11,13 @@
 /**
  * Computes a^b mod c
  */
-int modpow(long a, long b, int c) {
+int modpow(long long a, long long b, int c) {
 	int res = 1;
 	while(b > 0) {
-		if(b & 1) res = (res * a) % c; /* Need long multiplication else this will overflow... */
+		/* Need long multiplication else this will overflow... */
+		if(b & 1) {
+			res = (res * a) % c;
+		}
 		b = b >> 1;
 		a = (a * a) % c; /* Same deal here */
 	}
@@ -66,7 +69,8 @@ int probablePrime(int n, int k) {
 }
 
 /**
- * Find a random (probable) prime between 3 and n - 1, this distribution is nowhere near uniform, see prime gaps
+ * Find a random (probable) prime between 3 and n - 1, this distribution is
+ * nowhere near uniform, see prime gaps
  */
 int randPrime(int n) {
 	int prime = rand() % n;
@@ -176,7 +180,7 @@ int* encodeMessage(int len, int bytes, char* message, int exponent, int modulus)
 		x = 0;
 		for(j = 0; j < bytes; j++) x += message[i + j] * (1 << (7 * j));
 		encoded[i/bytes] = encode(x, exponent, modulus);
-#ifndef NOPRINT
+#ifndef MEASURE
 		printf("%d ", encoded[i/bytes]);
 #endif
 	}
@@ -189,13 +193,13 @@ int* encodeMessage(int len, int bytes, char* message, int exponent, int modulus)
  * The returned message will be of size len * bytes.
  */
 int* decodeMessage(int len, int bytes, int* cryptogram, int exponent, int modulus) {
-	int *decoded = malloc(len * sizeof(int));
+	int *decoded = malloc(len * bytes * sizeof(int));
 	int x, i, j;
 	for(i = 0; i < len; i++) {
 		x = decode(cryptogram[i], exponent, modulus);
 		for(j = 0; j < bytes; j++) {
 			decoded[i*bytes + j] = (x >> (7 * j)) % 128;
-#ifndef NOPRINT
+#ifndef MEASURE
 			if(decoded[i*bytes + j] != '\0') printf("%c", decoded[i*bytes + j]);
 #endif
 		}
@@ -203,9 +207,15 @@ int* decodeMessage(int len, int bytes, int* cryptogram, int exponent, int modulu
 	return decoded;
 }
 
+/**
+ * Main method to demostrate the system. Sets up primes p, q, and proceeds to encode and
+ * decode the message given in "text.txt"
+ */
 int main(void) {
-	int p, q, n, phi, e, d, bytes;
+	int p, q, n, phi, e, d, bytes, len;
 	int *encoded, *decoded;
+	char *buffer;
+	FILE *f;
 	srand(time(NULL));
 	while(1) {
 		p = randPrime(SINGLE_MAX);
@@ -218,14 +228,14 @@ int main(void) {
 		
 		n = p * q;
 		printf("Got modulus, n = pq = %d ... ", n);
-		if(n < 256) {
-			printf("Modulus is less than 256, cannot encode single bytes. Trying again ... ");
+		if(n < 128) {
+			printf("Modulus is less than 128, cannot encode single bytes. Trying again ... ");
 			getchar();
 		}
 		else break;
 	}
-	if(n >> 24) bytes = 3;
-	else if(n >> 16) bytes = 2;
+	if(n >> 21) bytes = 3;
+	else if(n >> 14) bytes = 2;
 	else bytes = 1;	
 	getchar();
 	
@@ -242,13 +252,12 @@ int main(void) {
 	getchar();
 	
 	printf("Opening file \"text.txt\" for reading\n");
-	FILE* f = fopen("text.txt", "r");
+	f = fopen("text.txt", "r");
 	if(f == NULL) {
 		printf("Failed to open file \"text.txt\". Does it exist?\n");
 		return EXIT_FAILURE;
 	}
-	char* buffer;
-	int len = readFile(f, &buffer, bytes); /* len will be a multiple of bytes, to send whole chunks */
+	len = readFile(f, &buffer, bytes); /* len will be a multiple of bytes, to send whole chunks */
 	fclose(f);
 	
 	printf("File \"text.txt\" read successfully, %d bytes read. Encoding byte stream in chunks of %d bytes ... ", len, bytes);
@@ -263,8 +272,7 @@ int main(void) {
 	decoded = decodeMessage(len/bytes, bytes, encoded, d, n);
 	
 
-	printf("\nFinished RSA demonstration ... ");
-	getchar();
+	printf("\nFinished RSA demonstration!\n");
 	
 	free(encoded);
 	free(decoded);
