@@ -138,13 +138,19 @@ int readFile(FILE* fd, char** buffer, int bytes) {
 	while((r = fread(buf, sizeof(char), BUF_SIZE, fd)) > 0) {
 		if(len + r >= cap) {
 			cap *= 2;
-			*buffer = realloc(*buffer, cap);
+                        char *t = realloc(*buffer, cap);
+                        if (t)
+                            *buffer = t;
 		}
 		memcpy(&(*buffer)[len], buf, r);
 		len += r;
 	}
 	/* Pad the last block with zeros to signal end of cryptogram. An additional block is added if there is no room */
-	if(len + bytes - len % bytes > cap) *buffer = realloc(*buffer, len + bytes - len % bytes);
+        if(len + bytes - len % bytes > cap) {
+            char *t = realloc(*buffer, len + bytes - len % bytes);
+            if (t)
+                *buffer = t;
+        }
 	do {
 		(*buffer)[len] = '\0';
 		len++;

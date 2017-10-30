@@ -114,7 +114,9 @@ void bignum_copy(bignum* source, bignum* dest) {
 	dest->length = source->length;
 	if(source->capacity > dest->capacity) {
 		dest->capacity = source->capacity;
-		dest->data = realloc(dest->data, dest->capacity * sizeof(word));
+                word *t = realloc(dest->data, dest->capacity * sizeof(word));
+                if (t)
+                    dest->data = t;
 	}
 	memcpy(dest->data, source->data, dest->length * sizeof(word));
 }
