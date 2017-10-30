@@ -175,15 +175,17 @@ int decode(int c, int d, int n) {
  */
 int* encodeMessage(int len, int bytes, char* message, int exponent, int modulus) {
 	int *encoded = malloc((len/bytes) * sizeof(int));
-	int x, i, j;
-	for(i = 0; i < len; i += bytes) {
-		x = 0;
-		for(j = 0; j < bytes; j++) x += message[i + j] * (1 << (7 * j));
-		encoded[i/bytes] = encode(x, exponent, modulus);
-#ifndef MEASURE
-		printf("%d ", encoded[i/bytes]);
-#endif
-	}
+        if (encoded) {
+            int x, i, j;
+            for(i = 0; i < len; i += bytes) {
+                    x = 0;
+                    for(j = 0; j < bytes; j++) x += message[i + j] * (1 << (7 * j));
+                    encoded[i/bytes] = encode(x, exponent, modulus);
+    #ifndef MEASURE
+                    printf("%d ", encoded[i/bytes]);
+    #endif
+            }
+        }
 	return encoded;
 }
 
@@ -194,16 +196,18 @@ int* encodeMessage(int len, int bytes, char* message, int exponent, int modulus)
  */
 int* decodeMessage(int len, int bytes, int* cryptogram, int exponent, int modulus) {
 	int *decoded = malloc(len * bytes * sizeof(int));
-	int x, i, j;
-	for(i = 0; i < len; i++) {
-		x = decode(cryptogram[i], exponent, modulus);
-		for(j = 0; j < bytes; j++) {
-			decoded[i*bytes + j] = (x >> (7 * j)) % 128;
-#ifndef MEASURE
-			if(decoded[i*bytes + j] != '\0') printf("%c", decoded[i*bytes + j]);
-#endif
-		}
-	}
+        if (decoded) {
+            int x, i, j;
+            for(i = 0; i < len; i++) {
+                    x = decode(cryptogram[i], exponent, modulus);
+                    for(j = 0; j < bytes; j++) {
+                            decoded[i*bytes + j] = (x >> (7 * j)) % 128;
+    #ifndef MEASURE
+                            if(decoded[i*bytes + j] != '\0') printf("%c", decoded[i*bytes + j]);
+    #endif
+                    }
+            }
+        }
 	return decoded;
 }
 
