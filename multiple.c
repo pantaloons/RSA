@@ -300,7 +300,13 @@ void bignum_subtract(bignum* result, bignum* b1, bignum* b2) {
 		if(i < b2->length) temp = temp + b2->data[i]; /* Auto wrapped mod RADIX */
 		diff = b1->data[i] - temp;
 		if(temp > b1->data[i]) carry = 1;
-		else carry = 0;
+		else {
+			if( temp == 0 && b2->data[i] == 0xffffffff ){
+				carry = 1;
+			}else{
+				carry = 0;
+			}
+		}
 		result->data[i] = diff;
 		if(result->data[i] != 0) length = i + 1;
 	}
